@@ -32,7 +32,7 @@ def columnNameCleanup(className, columnName):
     colNameRegex = r".*" + className + r"(|List)\."
     return re.sub(colNameRegex, "", columnName)
 
-def buildColumns(name, parentName, tables):
+def buildColumns(name, tables):
     columnIndex = {}
     for table in tables:
         for column in [column for column in table["columns"] if "idx" not in column["Name"]]:
@@ -83,27 +83,15 @@ def buildPipeline(name, tables):
 ################ Table ################
 
 def buildClassTable(name, tables):
-    parentName = getDocumentParentClass(tables[0]["table"])
     dst = {"table": name, "collection": tables[0]["collection"]}
-    dst["columns"] = buildColumns(name, parentName, tables)
+    dst["columns"] = buildColumns(name, tables)
     dst["pipeline"] = buildPipeline(name, tables)
     return dst
 
  ################ Classes ################
 
-def removeDuplicates(x):
-    return list(dict.fromkeys(x))
-
 def getDocumentClass(tableName):
     return tableName.split("_")[-1].replace("List", "")
-
-def getDocumentParentClass(tableName):
-    elements = removeDuplicates(tableName.split("_"))
-    if ( len(elements) >= 2 ):
-        element = elements[-2].replace("List", "")
-    else:
-        element = ""
-    return element
 
 def buildClassIndex(db):
     """ Build a dictionary of all classes in the database """
