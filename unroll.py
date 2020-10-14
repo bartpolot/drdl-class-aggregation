@@ -33,6 +33,7 @@ def columnNameCleanup(className, columnName):
     return re.sub(colNameRegex, "", columnName)
 
 def buildColumns(name, tables):
+    """ Aggregate the columns from all tables that contain this class except idx columns """
     columnIndex = {}
     for table in tables:
         for column in [column for column in table["columns"] if "idx" not in column["Name"]]:
@@ -45,6 +46,7 @@ def buildColumns(name, tables):
 ################ Pipeline ################
 
 def buildBasePipeline(name, parentName):
+    """ Builds a base 4 stage pipeline to extract a child class from a parent injecting the parent id """
     unwind = { "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } }
     if (parentName != name):
         addFields = { "$addFields": { name + "." + parentName + "_id": "$_id" } }
@@ -55,6 +57,7 @@ def buildBasePipeline(name, parentName):
     return [unwind, addFields, replaceRoot, project]
 
 def buildGenericPipeline(name, nestingStages):
+    """ Builds a generic pipeline with optionally a number of stages to skip all levels above parent """
     pipeline = []
     for stage in nestingStages[1:-1]:
         pipeline.append({ "$unwind": { "path": "$" + stage, "preserveNullAndEmptyArrays": False } })
@@ -63,11 +66,13 @@ def buildGenericPipeline(name, nestingStages):
     return pipeline
     
 def buildUnionStage(name, stages, collectionName):
+    """ Builds a union stage, including the internal pipeline to generate the set to do the union with """
     internalPipeline = buildGenericPipeline (name, stages)
     stage = { "$unionWith": { "coll": collectionName, "pipeline": internalPipeline } }
     return stage
 
 def buildPipeline(name, tables):
+    """ Builds a pipeline to collect instances of a class from all possible nesting levels """
     initialStages = tables[0]["table"].split("_")
     if (len(initialStages) < 2):
         return []
@@ -83,6 +88,13 @@ def buildPipeline(name, tables):
 ################ Table ################
 
 def buildClassTable(name, tables):
+    """ Builds a Table definition for a class
+
+    The table definition will contain:
+    - The table name
+    - The collection where the class is stored
+    - The columns of this table
+    - The aggregation pipeline needed to generate this table """
     dst = {"table": name, "collection": tables[0]["collection"]}
     dst["columns"] = buildColumns(name, tables)
     dst["pipeline"] = buildPipeline(name, tables)
@@ -90,14 +102,17 @@ def buildClassTable(name, tables):
 
  ################ Classes ################
 
-def getDocumentClass(tableName):
+def getDocumentClassName(tableName):
     return tableName.split("_")[-1].replace("List", "")
 
 def buildClassIndex(db):
-    """ Build a dictionary of all classes in the database """
+    """ Build a dictionary of all classes in the database
+
+    The dictionary contains each class as key and as value
+    an array of all tables that contain this class """
     classIndex = {}
     for table in db["tables"]:
-        className = getDocumentClass(table["table"])
+        className = getDocumentClassName(table["table"])
         if className in classIndex:
             classIndex[className].append(table)
         else:
