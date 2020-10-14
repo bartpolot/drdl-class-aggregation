@@ -11,6 +11,7 @@
 COLL_NAME = "quotes"
 ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
+DST_FILENAME = "dst.drdl"
 # END TODO
 
 
@@ -74,8 +75,8 @@ def removeTables(name, db):
 #   - table: coverages_short
 #     collection: quotes
 #     pipeline:
-#     - $stage1
-#     - $stage2
+#     - $stage1: [...]
+#     - $stage2: [...]
 with open(SRC_FILENAME, 'r') as stream:
     recursiveNameRegex = r"(^|_)([a-zA-Z0-9]+)_\2(_|$)"
     for schemas in yaml.load_all(stream):
@@ -99,5 +100,5 @@ with open(SRC_FILENAME, 'r') as stream:
                     replacePipeline(recursiveClass, info)
                     replaceColumns(recursiveClass, info)
                     removeTables(recursiveClass, db)
-        with open("dst.drdl", "w") as outFile:
+        with open(DST_FILENAME, "w") as outFile:
             outFile.write(yaml.dump(schemas, default_flow_style=False))
