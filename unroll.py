@@ -19,7 +19,6 @@
 #   - quote_coverageList_coverageList_insuredEntityList
 # - handle case when multiple objects are recursive, eg: quote_coverageList_coverageList_insuredEntityList_insuredEntityList
 # - remove these constants:
-COLL_NAME = "quotes"
 ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
 DST_FILENAME = "dst.drdl"
@@ -28,6 +27,87 @@ DST_FILENAME = "dst.drdl"
 
 import yaml
 import re
+
+
+def replacePipeline(name, info):
+    table = info["table"]
+    parentName = getDocumentParentClass(table["table"])
+    table["table"] = getDocumentClass(name)
+    newPipeline = buildBasePipeline(name, parentName)
+    for i in range(1, info["c"]):
+        newPipeline.append(buildUnionStage(name, i))
+    table["pipeline"] = newPipeline
+
+
+################ Columns ################
+
+def columnNameCleanup(className, columnName):
+    """ Remove all prefixes and the List suffix from a column name 
+
+    Example: coverageList.coverageList.coverageCode -> coverageCode"""
+    colNameRegex = r".*" + className + r"(|List)\."
+    return re.sub(colNameRegex, "", columnName)
+
+def buildColumns(name, parentName, tables):
+    columnIndex = {}
+    for table in tables:
+        for column in [column for column in table["columns"] if "idx" not in column["Name"]]:
+            columnName = columnNameCleanup(name, column["Name"])
+            columnIndex[columnName] = column
+            column["Name"] = columnName
+            column["SqlName"] = columnName
+    return list(columnIndex.values())
+
+################ Pipeline ################
+
+def buildBasePipeline(name, parentName=None):
+    unwind = { "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } }
+    if (parentName and parentName != name):
+        addFields = { "$addFields": { name + "." + parentName + "_id": "$_id" } }
+    else:
+        addFields = { "$addFields": { name + ".pid": "$" + ID_NAME} }
+    replaceRoot = { "$replaceRoot": { "newRoot": "$" + name } }
+    project = { "$project": { name: 0 }}
+    return [unwind, addFields, replaceRoot, project]
+
+def buildGenericPipeline(name, nestingStages):
+    pipeline = []
+    print (name, nestingStages, nestingStages[1:-1])
+    for stage in nestingStages[1:-1]:
+        pipeline.append({ "$unwind": { "path": "$" + stage, "preserveNullAndEmptyArrays": False } })
+        pipeline.append({ "$replaceRoot": { "newRoot": "$" + stage } } )
+    pipeline.extend(buildBasePipeline(nestingStages[-1], nestingStages[-2]))
+    return pipeline
+    
+def buildUnionStage(name, stages, collectionName):
+    internalPipeline = buildGenericPipeline (name, stages)
+    stage = { "$unionWith": { "coll": collectionName, "pipeline": internalPipeline } }
+    return stage
+
+def buildPipeline(name, tables):
+    print (name)
+    initialStages = tables[0]["table"].split("_")
+    if (len(initialStages) < 2):
+        return []
+    pipeline = buildGenericPipeline (name, initialStages)
+    collectionName = tables[0]["collection"]
+    for table in tables[1:]:
+        stages = table["table"].split("_")
+        if(len(stages) < 2):
+            continue
+        pipeline.append(buildUnionStage(name, stages, collectionName))
+    return pipeline
+
+################ Table ################
+
+def buildClassTable(name, tables):
+    parentName = getDocumentParentClass(tables[0]["table"])
+    dst = {"table": name, "collection": tables[0]["collection"]}
+    dst["columns"] = buildColumns(name, parentName, tables)
+    dst["pipeline"] = buildPipeline(name, tables)
+    return dst
+
+ ################ Classes ################
 
 def removeDuplicates(x):
     return list(dict.fromkeys(x))
@@ -43,94 +123,27 @@ def getDocumentParentClass(tableName):
         element = ""
     return element
 
+def buildClassIndex(db):
+    """ Build a dictionary of all classes in the database """
+    classIndex = {}
+    for table in db["tables"]:
+        className = getDocumentClass(table["table"])
+        if className in classIndex:
+            classIndex[className].append(table)
+        else:
+            classIndex[className] = [table]
+    return classIndex
 
-def buildBasePipeline(name, parentName=None):
-    unwind = { "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } }
-    if (parentName):
-        addFields = { "$addFields": { name + "." + parentName + "_id": "$_id" } }
-    else:
-        addFields = { "$addFields": { name + ".pid": "$" + ID_NAME} }
-    replaceRoot = { "$replaceRoot": { "newRoot": "$" + name } }
-    project = { "$project": { name: 0 }}
-    return [unwind, addFields, replaceRoot, project]
-
-def buildPipeline(name, level):
-    pipeline = []
-    for _ in range(level):
-        pipeline.append({ "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } })
-        pipeline.append({ "$replaceRoot": { "newRoot": "$" + name } } )
-    pipeline.extend(buildBasePipeline(name))
-    return pipeline
-    
-def buildUnionStage(name, level):
-    internalPipeline = buildPipeline (name, level)
-    stage = { "$unionWith": { "coll": COLL_NAME, "pipeline": internalPipeline } }
-    return stage
-
-def replacePipeline(name, info):
-    table = info["table"]
-    parentName = getDocumentParentClass(table["table"])
-    table["table"] = getDocumentClass(name)
-    newPipeline = buildBasePipeline(name, parentName)
-    for i in range(1, info["c"]):
-        newPipeline.append(buildUnionStage(name, i))
-    table["pipeline"] = newPipeline
-
-def replaceColumns(name, info):
-    table = info["table"]
-    c = info["c"]
-    colNameRegex = r"(" + name + r"\.){" + str(c) + r"}"
-    newColumns = []
-    for column in table["columns"]:
-        if "_idx" in column["Name"]:
-            continue
-        column["Name"] = re.sub(colNameRegex, "", column["Name"])
-        column["SqlName"] = re.sub(colNameRegex, "", column["SqlName"])
-        newColumns.append(column)
-    newColumns.append({"MongoType": "bson.ObjectId", "Name": "pid", "SqlName": "pid", "SqlType": "objectid"})
-    parentName = getDocumentParentClass(table["table"])
-    if (parentName):
-        parentFieldName = parentName + "_id"
-        newColumns.append({"MongoType": "bson.ObjectId", "Name": parentFieldName, "SqlName": parentFieldName, "SqlType": "objectid"})
-    table["columns"] = newColumns
-
-def isRecursiveSubClass(name, table):
-    recursiveSubClassRegex = r".*(_" + name + ")+$"
-    tableName = table["table"]
-    return re.match(recursiveSubClassRegex, tableName)
-
-def removeTables(name, db):
-    db["tables"][:] = [ table for table in db["tables"] if not isRecursiveSubClass(name, table)]
-
+################ Main ################
 
 with open(SRC_FILENAME, 'r') as stream:
-    recursiveNameRegex = r"(^|_)([a-zA-Z0-9]+)_\2(_|$)"
     for schemas in yaml.load_all(stream):
         for schema, dbs in schemas.items():
             for db in dbs:
-                recursiveClasses = {}
-                tableIndex = {}
-                for table in db["tables"]:
-                    tableName = table["table"]
-                    className = getDocumentClass(tableName)
-                    if className in tableIndex:
-                        tableIndex[className].append(tableName)
-                    else:
-                        tableIndex[className] = [tableName]
-                    matches = re.findall(recursiveNameRegex, tableName)
-                    if (matches):
-                        recursiveClass = matches[0][1]
-                        c = tableName.count(recursiveClass)
-                        if recursiveClass in recursiveClasses:
-                            currentMax = recursiveClasses[recursiveClass]
-                        else:
-                            currentMax = {"c": 0}
-                        if (c > currentMax["c"]):
-                            recursiveClasses[recursiveClass] = {"c": c, "tableName": tableName, "table": table}
-                for recursiveClass, info in recursiveClasses.items():
-                    #print(recursiveClass, "in", info["tableName"])
-                    replaceColumns(recursiveClass, info)
-                    replacePipeline(recursiveClass, info)
-                    removeTables(recursiveClass, db)
+                classIndex = buildClassIndex(db)
+                unrolledTables = []
+                for className in classIndex:
+                    unrolledTables.append(buildClassTable(className, classIndex[className]))
+                db["tables"] = unrolledTables
         with open(DST_FILENAME, "w") as outFile:
             outFile.write(yaml.dump(schemas, default_flow_style=False))
