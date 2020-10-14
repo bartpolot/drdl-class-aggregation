@@ -13,31 +13,15 @@
 #     - $stage2: [...]
 #     columns: [{ MongoType, Name, SqlName, SqlType }]
 #
-# TODO: 
-# - handle entities under recursive objects, eg: 
-#   - quote_coverageList_insuredEntityList
-#   - quote_coverageList_coverageList_insuredEntityList
-# - handle case when multiple objects are recursive, eg: quote_coverageList_coverageList_insuredEntityList_insuredEntityList
+# TODO:
 # - remove these constants:
 ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
 DST_FILENAME = "dst.drdl"
 # END TODO
 
-
 import yaml
 import re
-
-
-def replacePipeline(name, info):
-    table = info["table"]
-    parentName = getDocumentParentClass(table["table"])
-    table["table"] = getDocumentClass(name)
-    newPipeline = buildBasePipeline(name, parentName)
-    for i in range(1, info["c"]):
-        newPipeline.append(buildUnionStage(name, i))
-    table["pipeline"] = newPipeline
-
 
 ################ Columns ################
 
@@ -72,7 +56,6 @@ def buildBasePipeline(name, parentName=None):
 
 def buildGenericPipeline(name, nestingStages):
     pipeline = []
-    print (name, nestingStages, nestingStages[1:-1])
     for stage in nestingStages[1:-1]:
         pipeline.append({ "$unwind": { "path": "$" + stage, "preserveNullAndEmptyArrays": False } })
         pipeline.append({ "$replaceRoot": { "newRoot": "$" + stage } } )
@@ -85,7 +68,6 @@ def buildUnionStage(name, stages, collectionName):
     return stage
 
 def buildPipeline(name, tables):
-    print (name)
     initialStages = tables[0]["table"].split("_")
     if (len(initialStages) < 2):
         return []
