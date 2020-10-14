@@ -44,9 +44,9 @@ def buildColumns(name, tables):
 
 ################ Pipeline ################
 
-def buildBasePipeline(name, parentName=None):
+def buildBasePipeline(name, parentName):
     unwind = { "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } }
-    if (parentName and parentName != name):
+    if (parentName != name):
         addFields = { "$addFields": { name + "." + parentName + "_id": "$_id" } }
     else:
         addFields = { "$addFields": { name + ".pid": "$" + ID_NAME} }
