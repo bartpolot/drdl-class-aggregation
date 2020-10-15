@@ -32,6 +32,19 @@ def columnNameCleanup(className, columnName):
     colNameRegex = r".*" + className + r"(|List)\."
     return re.sub(colNameRegex, "", columnName)
 
+def getParentObjectName(tableName):
+    objectNames = tableName.split("_")
+    if (len(objectNames) < 2):
+        return None
+    if (objectNames[-2] == objectNames[-1]):
+        return "pid"
+    return objectNames[-2].replace("List", "") + "_id"
+
+def addParentColumn(columnIndex, table):
+    parentName = getParentObjectName(table["table"])
+    if (parentName and parentName not in columnIndex):
+        columnIndex[parentName] = {"MongoType": "bson.ObjectId", "Name": parentName, "SqlName": parentName, "SqlType": "objectid"}
+
 def buildColumns(name, tables):
     """ Aggregate the columns from all tables that contain this class except idx columns """
     columnIndex = {}
@@ -41,6 +54,7 @@ def buildColumns(name, tables):
             columnIndex[columnName] = column
             column["Name"] = columnName
             column["SqlName"] = columnName
+        addParentColumn(columnIndex, table)
     return list(columnIndex.values())
 
 ################ Pipeline ################
