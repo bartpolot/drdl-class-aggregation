@@ -14,6 +14,7 @@
 #     columns: [{ MongoType, Name, SqlName, SqlType }]
 #
 # TODO:
+# - optimize the unwind-replaceRoot steps with just one replaceRoot at the end
 # - remove these constants:
 ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
@@ -59,15 +60,18 @@ def buildColumns(name, tables):
 
 ################ Pipeline ################
 
-def buildBasePipeline(name, parentName):
+def buildBasePipeline(stage, parentStage, rootStage):
     """ Builds a base 4 stage pipeline to extract a child class from a parent injecting the parent id """
-    unwind = { "$unwind": { "path": "$" + name, "preserveNullAndEmptyArrays": False } }
-    if (parentName != name):
-        addFields = { "$addFields": { name + "." + parentName + "_id": "$_id" } }
+    unwind = { "$unwind": { "path": "$" + stage, "preserveNullAndEmptyArrays": False } }
+    parentName = parentStage.replace("List", "")
+    if (parentStage == rootStage):
+        addFields = { "$addFields": { stage + "." + parentName + "_id": "$_id" } }
+    elif (parentStage != stage):
+        addFields = { "$addFields": { stage + "." + parentName + "_id": "$" + ID_NAME } }
     else:
-        addFields = { "$addFields": { name + ".pid": "$" + ID_NAME} }
-    replaceRoot = { "$replaceRoot": { "newRoot": "$" + name } }
-    project = { "$project": { name: 0 }}
+        addFields = { "$addFields": { stage + ".pid": "$" + ID_NAME} }
+    replaceRoot = { "$replaceRoot": { "newRoot": "$" + stage } }
+    project = { "$project": { stage: 0 }}
     return [unwind, addFields, replaceRoot, project]
 
 def buildGenericPipeline(name, nestingStages):
@@ -76,7 +80,7 @@ def buildGenericPipeline(name, nestingStages):
     for stage in nestingStages[1:-1]:
         pipeline.append({ "$unwind": { "path": "$" + stage, "preserveNullAndEmptyArrays": False } })
         pipeline.append({ "$replaceRoot": { "newRoot": "$" + stage } } )
-    pipeline.extend(buildBasePipeline(nestingStages[-1], nestingStages[-2]))
+    pipeline.extend(buildBasePipeline(nestingStages[-1], nestingStages[-2], nestingStages[0]))
     return pipeline
     
 def buildUnionStage(name, stages, collectionName):
