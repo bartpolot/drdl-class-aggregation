@@ -28,7 +28,7 @@ ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
 DST_FILENAME = "dst.drdl"
 
-################ Glonals ################
+################ Globals ################
 
 idName = ID_NAME
 
@@ -186,7 +186,8 @@ def buildClassIndex(db):
      """
     classIndex = {}
     for table in db["tables"]:
-        for column in [column for column in table["columns"] if idName in column["Name"]]:
+        idRegex = r".*\." + idName + r"$"
+        for column in [column for column in table["columns"] if re.match(idRegex, column["Name"]) ]:
             className = getDocumentClassNameFromColumn(column["Name"])
             srcInfo = { 'className': className, 
                         'table': table,
