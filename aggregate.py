@@ -192,7 +192,7 @@ def buildClassIndex(db):
 
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 with open(SRC_FILENAME, 'r') as stream:
-    for schemas in yaml.load_all(stream):
+    for schemas in yaml.safe_load_all(stream):
         for schema, dbs in schemas.items():
             for db in dbs:
                 classIndex = buildClassIndex(db)
