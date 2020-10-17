@@ -15,16 +15,22 @@
 #
 # TODO:
 # - optimize the unwind-replaceRoot steps with just one replaceRoot at the end
-# - read loglevel from cmd
-# - remove these constants:
-ID_NAME = "oid"
-SRC_FILENAME = "src.drdl"
-DST_FILENAME = "dst.drdl"
 # END TODO
 
 import yaml
 import re
 import logging
+import argparse
+
+################ Defaults ################
+
+ID_NAME = "oid"
+SRC_FILENAME = "src.drdl"
+DST_FILENAME = "dst.drdl"
+
+################ Glonals ################
+
+idName = ID_NAME
 
 ################ Columns ################
 
@@ -88,9 +94,9 @@ def buildBasePipeline(stage, parentStage, rootStage):
     if (parentStage == rootStage):
         addFields = { "$addFields": { stage + "." + parentName + "_id": "$_id" } }
     elif (parentStage != stage):
-        addFields = { "$addFields": { stage + "." + parentName + "_id": "$" + ID_NAME } }
+        addFields = { "$addFields": { stage + "." + parentName + "_id": "$" + idName } }
     else:
-        addFields = { "$addFields": { stage + ".pid": "$" + ID_NAME} }
+        addFields = { "$addFields": { stage + ".pid": "$" + idName} }
     replaceRoot = { "$replaceRoot": { "newRoot": "$" + stage } }
     project = { "$project": { stage: 0 }}
     return [unwind, addFields, replaceRoot, project]
@@ -155,7 +161,11 @@ def getDocumentClassNameFromTable(tableName):
     return tableName.split("_")[-1].replace("List", "")
 
 def getDocumentClassNameFromColumn(columnName):
-    return columnName.split(".")[-2].replace("List", "")
+    try:
+        return columnName.split(".")[-2].replace("List", "")
+    except IndexError:
+        raise Exception("Class marker %s not found in column name %s" % (idName, columnName)) from None
+    
 
 def buildClassPath(column, table):
     """ Given a table name (for the name of the root) and
@@ -176,7 +186,7 @@ def buildClassIndex(db):
      """
     classIndex = {}
     for table in db["tables"]:
-        for column in [column for column in table["columns"] if ID_NAME in column["Name"]]:
+        for column in [column for column in table["columns"] if idName in column["Name"]]:
             className = getDocumentClassNameFromColumn(column["Name"])
             srcInfo = { 'className': className, 
                         'table': table,
@@ -190,7 +200,20 @@ def buildClassIndex(db):
 
 ################ Main ################
 
-logging.basicConfig(format='%(message)s', level=logging.INFO)
+parser = argparse.ArgumentParser()
+parser.add_argument("-i", "--inputfile", type=argparse.FileType('r'), default=SRC_FILENAME,
+                    help="filename for the input DRDL")
+parser.add_argument("-o", "--outputfile", type=argparse.FileType('w'), default=DST_FILENAME,
+                    help="filename for the output DRDL")
+parser.add_argument("-c", "--class-marker", type=str, default=ID_NAME,
+                    help="fields with this name are detected as classes, defaults to " + ID_NAME)
+parser.add_argument("-l", "--log", type=str, default="logging.INFO",
+                    help="logging level, defaults to INFO")
+args = parser.parse_args()
+loggingLevel = getattr(logging, args.log.upper(), logging.INFO)
+logging.basicConfig(format='%(message)s', level=loggingLevel)
+idName = args.class_marker
+print(idName)
 with open(SRC_FILENAME, 'r') as stream:
     for schemas in yaml.safe_load_all(stream):
         for schema, dbs in schemas.items():
