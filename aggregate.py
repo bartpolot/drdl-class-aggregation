@@ -15,6 +15,7 @@
 #
 # TODO:
 # - optimize the unwind-replaceRoot steps with just one replaceRoot at the end
+# - read loglevel from cmd
 # - remove these constants:
 ID_NAME = "oid"
 SRC_FILENAME = "src.drdl"
@@ -23,6 +24,7 @@ DST_FILENAME = "dst.drdl"
 
 import yaml
 import re
+import logging
 
 ################ Columns ################
 
@@ -51,25 +53,25 @@ def buildColumns(classInfo, idx):
     classInfo: [{ 'className': className, 'table': table, 'classPath': ['path', 'to', 'class']] }] """
     columnIndex = {}
     className = classInfo[0]["className"]
-    print(className)
+    logging.info("  %s", className)
     for srcInfo in classInfo:
         table = srcInfo["table"]
-        print(" ", srcInfo["classPath"], " - ", srcInfo["table"]["table"])
+        logging.debug("  %s - %s", srcInfo["classPath"], srcInfo["table"]["table"])
         for column in [column for column in table["columns"] if "idx" not in column["Name"]]:
             columnName = columnNameCleanup(srcInfo["className"], column["Name"])
             if columnName == "_id":
-                print("      _id is not allowed in nested objects")
+                logging.debug("    _id is not allowed in nested objects")
                 continue
             if className not in column["Name"]: # this a field of the parent
-                print("     ", column["Name"], "belongs to the parent class")
+                logging.debug("    %s belongs to the parent class", column["Name"])
                 continue
             if columnName in columnIndex: # already have it from other tables
-                print("     ", columnName ,"- we've already seen this")
+                logging.debug("    %s - we've already seen this", columnName)
                 continue
             if columnName.split(".")[0] in idx: # this is a full-time class
-                print("     ", columnName.split(".")[0], "belongs in a separate table")
+                logging.debug("    %s belongs in a separate table", columnName.split(".")[0])
                 continue
-            print("   ", columnName, " <-- ", column["Name"])
+            logging.info("    %s <-- %s", columnName, column["Name"])
             newColumn = dict(column)
             newColumn["Name"] = columnName
             newColumn["SqlName"] = columnName
@@ -143,11 +145,11 @@ def buildClassTable(classInfo, idx):
 
 def printClassIndex(classIndex):
     """ debug function """
-    print("Nested classes detected:")
+    logging.info("Nested classes detected:")
     for name, infos in classIndex.items():
-        print(" ",name)
+        logging.info("  %s",name)
         for i in infos:
-            print("   ", i["classPath"])
+            logging.debug("    %s", i["classPath"])
 
 def getDocumentClassNameFromTable(tableName):
     return tableName.split("_")[-1].replace("List", "")
@@ -188,6 +190,7 @@ def buildClassIndex(db):
 
 ################ Main ################
 
+logging.basicConfig(format='%(message)s', level=logging.INFO)
 with open(SRC_FILENAME, 'r') as stream:
     for schemas in yaml.load_all(stream):
         for schema, dbs in schemas.items():
@@ -195,6 +198,7 @@ with open(SRC_FILENAME, 'r') as stream:
                 classIndex = buildClassIndex(db)
                 # the root table is not nested, must be added explicitly
                 unrolledTables = [db["tables"][0]]
+                logging.info("Schema:")
                 for classInfo in classIndex.values():
                     unrolledTables.append(buildClassTable(classInfo, classIndex))
                 db["tables"] = unrolledTables
